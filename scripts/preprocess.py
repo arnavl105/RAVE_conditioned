@@ -7,11 +7,13 @@ from datetime import timedelta
 from functools import partial
 from itertools import repeat
 from typing import Callable, Iterable, Sequence, Tuple
+from scipy.interpolate import interp1d
 
 import lmdb
 import numpy as np
 import torch
 import yaml
+import librosa
 from absl import app, flags
 from tqdm import tqdm
 from udls.generated import AudioExample
@@ -63,7 +65,6 @@ def load_audio_chunk(path: str, n_signal: int,
         ],
         stdout=subprocess.PIPE,
     )
-
     chunk = process.stdout.read(n_signal * 2)
 
     while len(chunk) == n_signal * 2:
@@ -97,10 +98,24 @@ def flatten(iterator: Iterable):
         for sub_elm in elm:
             yield sub_elm
 
+def moving_average(data, window_size):
+    window = np.ones(int(window_size))/float(window_size)
+    return np.convolve(data, window, 'same')
+
 
 def process_audio_array(audio: Tuple[int, bytes],
                         env: lmdb.Environment) -> int:
     audio_id, audio_samples = audio
+
+    audio_samples_np = np.frombuffer(audio_samples, dtype=np.int16).astype(np.float32) / (2**15 - 1)
+    onset_strength = librosa.onset.onset_strength(y=audio_samples_np, sr=FLAGS.sampling_rate)
+
+    # Interpolate the onset strength to match the length of the waveform
+    onset_times = np.linspace(0, len(audio_samples_np), len(onset_strength))
+    desired_times = np.arange(len(audio_samples_np))
+    interp_func = interp1d(onset_times, onset_strength, kind='cubic', fill_value='extrapolate')
+    onset_strength_upsampled = interp_func(desired_times)
+    #onset_strength_filtered = moving_average(onset_strength_upsampled, 1000)
 
     buffers = {}
     buffers['waveform'] = AudioExample.AudioBuffer(
@@ -108,6 +123,13 @@ def process_audio_array(audio: Tuple[int, bytes],
         data=audio_samples,
         precision=AudioExample.Precision.INT16,
     )
+   
+    buffers['onset_strength'] = AudioExample.AudioBuffer(
+        sampling_rate=FLAGS.sampling_rate,
+        data=float_array_to_int16_bytes(onset_strength),
+        precision=AudioExample.Precision.INT16,
+    )
+
 
     ae = AudioExample(buffers=buffers)
     key = f'{audio_id:08d}'
@@ -196,6 +218,7 @@ def main(argv):
     audios = map(str, audios)
     audios = map(os.path.abspath, audios)
     audios = [*audios]
+    print(f'found {len(audios)} audio files')
 
     if not FLAGS.lazy:
         # load chunks
@@ -203,7 +226,6 @@ def main(argv):
         chunks = enumerate(chunks)
 
         processed_samples = map(partial(process_audio_array, env=env), chunks)
-
         pbar = tqdm(processed_samples)
         for audio_id in pbar:
             n_seconds = FLAGS.num_signal / FLAGS.sampling_rate * audio_id
