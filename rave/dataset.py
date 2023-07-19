@@ -27,6 +27,12 @@ def get_derivator_integrator(sr: int):
 
     return lambda x: lfilter(*derivator, x), lambda x: lfilter(*integrator, x)
 
+def RandomCrop2D(n_signal):
+    """
+    Returns a function that randomly crops signal to fit n_signal samples.
+    Designed to work with 2D arrays where time is the second dimension.
+    """
+    return lambda x: x[:, np.random.randint(0, x.shape[1] - n_signal):][:, :n_signal]
 
 class AudioDataset(data.Dataset):
 
@@ -46,13 +52,17 @@ class AudioDataset(data.Dataset):
     def __init__(self,
                  db_path: str,
                  audio_key: str = 'waveform',
-                 transforms: Optional[transforms.Transform] = None) -> None:
+                 transforms: Optional[transforms.Transform] = None,
+                 conditioning: bool = False,
+                 n_signal: int = 0) -> None:
         super().__init__()
         self._db_path = db_path
         self._audio_key = audio_key
         self._env = None
         self._keys = None
         self._transforms = transforms
+        self._conditioning = conditioning
+        self._n_signal = n_signal
 
     def __len__(self):
         return len(self.keys)
@@ -67,10 +77,22 @@ class AudioDataset(data.Dataset):
         audio = np.frombuffer(buffer.data, dtype=np.int16)
         audio = audio.astype(np.float32) / (2**15 - 1)
 
+        if self._conditioning:
+            # Retrieve and convert the onset strength data
+            onset_strength_buffer = ae.buffers['onset_strength']
+            assert onset_strength_buffer.precision == AudioExample.Precision.INT16
+            onset_strength = np.frombuffer(onset_strength_buffer.data, dtype=np.int16)
+            onset_strength = onset_strength.astype(np.float32) / (2**15 - 1)
+
         if self._transforms is not None:
             audio = self._transforms(audio)
 
-        return audio
+        if self._conditioning:
+            # Stack the waveform and onset strength data
+            audio = np.vstack([audio, onset_strength])
+            audio = RandomCrop2D(self._n_signal)(audio)
+
+        return audio 
 
 
 class LazyAudioDataset(data.Dataset):
@@ -179,7 +201,8 @@ def get_dataset(db_path,
                 sr,
                 n_signal,
                 derivative: bool = False,
-                normalize: bool = False):
+                normalize: bool = False,
+                conditioning: bool = False):
     if db_path[:4] == "http":
         return HTTPAudioDataset(db_path=db_path)
     with open(os.path.join(db_path, 'metadata.yaml'), 'r') as metadata:
@@ -195,6 +218,16 @@ def get_dataset(db_path,
         ),
         transforms.Dequantize(16),
     ]
+
+    if conditioning: #remove crop transform so that both dimensions are cropped the same way
+        transform_list = [
+            lambda x: x.astype(np.float32),
+            transforms.RandomApply(
+                lambda x: random_phase_mangle(x, 20, 2000, .99, sr),
+                p=.8,
+            ),
+            transforms.Dequantize(16),
+        ]
 
     if normalize:
         transform_list.append(normalize_signal)
@@ -212,6 +245,8 @@ def get_dataset(db_path,
         return AudioDataset(
             db_path,
             transforms=transform_list,
+            conditioning=conditioning,
+            n_signal=n_signal,
         )
 
 
