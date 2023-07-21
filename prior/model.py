@@ -80,11 +80,11 @@ class Model(pl.LightningModule):
         self.synth.eval()
         return self.synth.decode(flipped_z)
 
-    def forward(self, x):
+    def forward(self, x, onset_strength=None):
         res = self.pre_net(x)
         skp = torch.tensor(0.).to(x)
         for layer in self.residuals:
-            res, skp = layer(res, skp)
+            res, skp = layer(res, skp, onset_strength)
         x = self.post_net(skp)
         return x
 
@@ -97,7 +97,6 @@ class Model(pl.LightningModule):
                 start = None
 
             pred = self.forward(x[..., start:i + 1])
-
             if not cc.USE_BUFFER_CONV:
                 pred = pred[..., -1:]
 
@@ -129,13 +128,16 @@ class Model(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx):
-        x = self.encode(batch)
+        audio = batch[:, 0, :]
+        onset_strength = batch[:, 1, :]
+
+        x = self.encode(audio)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
-        pred = self.forward(x)
+        pred = self.forward(x, onset_strength)
 
         x = torch.argmax(self.split_classes(x), -1)
         pred = self.split_classes(pred)
-
+        
         loss = nn.functional.cross_entropy(
             pred.reshape(-1, self.quantized_normal.resolution),
             x.reshape(-1),
@@ -144,9 +146,12 @@ class Model(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x = self.encode(batch)
+        audio = batch[:, 0, :]
+        onset_strength = batch[:, 1, :]
+
+        x = self.encode(audio)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
-        pred = self.forward(x)
+        pred = self.forward(x, onset_strength)
 
 
         x = torch.argmax(self.split_classes(x), -1)
@@ -158,7 +163,7 @@ class Model(pl.LightningModule):
         )
 
         self.log("validation", loss)
-        return batch
+        return audio
 
     def validation_epoch_end(self, out):
         x = torch.randn_like(self.encode(out[0]))
