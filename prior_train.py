@@ -6,7 +6,8 @@ import sys
 import rave
 import rave.core
 import rave.dataset
-from prior.model import Model
+import gin
+from prior.model import Model as Prior
 from absl import flags
 from absl import app
 
@@ -43,7 +44,6 @@ flags.DEFINE_bool('progress',
                   help='Display training progress bar')
 
 def main(argv):
-    print("Loading flags")
     # Load the model
     torch.set_float32_matmul_precision('high')
     torch.backends.cudnn.benchmark = True
@@ -55,9 +55,7 @@ def main(argv):
     CYCLE_SIZE = 4
     N_LAYERS = 10
 
-    print("Loading model")
-
-    model = Model(
+    model = Prior(
         resolution=RESOLUTION,
         res_size=RES_SIZE,
         skp_size=SKP_SIZE,
@@ -66,8 +64,6 @@ def main(argv):
         n_layers=N_LAYERS,
         pretrained_vae=FLAGS.pretrained_vae,
     )
-
-    print("Model loaded")
 
     dataset = rave.dataset.get_dataset(FLAGS.db_path,
                                        model.sr,
