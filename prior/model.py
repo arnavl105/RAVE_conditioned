@@ -5,10 +5,9 @@ from tqdm import tqdm
 
 from .residual_block import ResidualBlock
 from .core import DiagonalShift, QuantizedNormal
-from rave import pqmf
-from rave import core
 
 import cached_conv as cc
+
 
 class Model(pl.LightningModule):
 
@@ -17,29 +16,16 @@ class Model(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         
+
         self.diagonal_shift = DiagonalShift()
         self.quantized_normal = QuantizedNormal(resolution)
 
         self.synth = torch.jit.load(pretrained_vae)
-
         self.sr = 44100 
-        data_size = 1
-
-        N_BAND = 16
-
-        self.weights = {'fullband_spectral_distance': 1.0,}
-
-        self.pqmf = pqmf.CachedPQMF(attenuation=100, n_band=N_BAND) 
-
-        multiscale_stft = core.MultiScaleSTFT(scales=[2048, 1024, 512, 256, 128], sample_rate=44100, magnitude=True)
-
-        self.audio_distance = core.AudioDistanceV1(multiscale_stft=lambda: multiscale_stft, log_epsilon=1e-7)
-
-        self.multiband_audio_distance = core.AudioDistanceV1(multiscale_stft=lambda: multiscale_stft, log_epsilon=1e-7)
-
+        data_size = 1 
 
         self.warmed_up = True
-        self.automatic_optimization = False
+
 
         self.pre_net = nn.Sequential(
             cc.Conv1d(
@@ -94,14 +80,13 @@ class Model(pl.LightningModule):
         self.synth.eval()
         return self.synth.decode(flipped_z)
 
-    def forward(self, x, onset_strength=None):
+    def forward(self, x):
         res = self.pre_net(x)
         skp = torch.tensor(0.).to(x)
         for layer in self.residuals:
-            res, skp = layer(res, skp, onset_strength)
+            res, skp = layer(res, skp)
         x = self.post_net(skp)
-        y = self.decode(x).detach()
-        return y
+        return x
 
     @torch.no_grad()
     def generate(self, x, argmax: bool = False):
@@ -112,6 +97,7 @@ class Model(pl.LightningModule):
                 start = None
 
             pred = self.forward(x[..., start:i + 1])
+
             if not cc.USE_BUFFER_CONV:
                 pred = pred[..., -1:]
 
@@ -143,55 +129,36 @@ class Model(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx):
-        optimizer = self.optimizers()
-
-        audio = batch[:, 0, :]
-        onset_strength = batch[:, 1, :]
-
-        x_multiband = self.pqmf(audio[None, :, :])
-
-        x = self.encode(audio)
+        x = self.encode(batch)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
-        y_multiband = self.forward(x, onset_strength)
+        pred = self.forward(x)
 
-        # DISTANCE BETWEEN INPUT AND OUTPUT
-        distances = {}
-        
-        fullband_distance = self.audio_distance(audio[None, :, :], y_multiband)
-        for k, v in fullband_distance.items():
-            distances[f'fullband_{k}'] = v
+        x = torch.argmax(self.split_classes(x), -1)
+        pred = self.split_classes(pred)
 
+        loss = nn.functional.cross_entropy(
+            pred.reshape(-1, self.quantized_normal.resolution),
+            x.reshape(-1),
+        )
+        self.log("latent_prediction", loss)
+        return loss
 
-        loss = {}
-        loss.update(distances)
-
-        optimizer.zero_grad()
-        loss_value = 0.
-        dummy_param = next(self.parameters())
-        for k, v in loss.items():
-            loss_value += v + (dummy_param.sum() * 0.)
-        self.manual_backward(loss_value)
-        optimizer.step()
-
-        print("loss", loss_value)
-        self.log_dict(loss)
-
-    
     def validation_step(self, batch, batch_idx):
-        audio = batch[:, 0, :]
-        onset_strength = batch[:, 1, :]
-
-        x = self.encode(audio)
+        x = self.encode(batch)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
-        y = self.forward(x, onset_strength)
+        pred = self.forward(x)
 
-        distance = self.audio_distance(audio[None, :, :], y)
 
-        full_distance = sum(distance.values())
+        x = torch.argmax(self.split_classes(x), -1)
+        pred = self.split_classes(pred)
 
-        self.log("validation", full_distance)
+        loss = nn.functional.cross_entropy(
+            pred.reshape(-1, self.quantized_normal.resolution),
+            x.reshape(-1),
+        )
 
-        return audio
+        self.log("validation", loss)
+        return batch
 
     def validation_epoch_end(self, out):
         x = torch.randn_like(self.encode(out[0]))
