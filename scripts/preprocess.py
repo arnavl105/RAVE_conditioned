@@ -7,7 +7,6 @@ from datetime import timedelta
 from functools import partial
 from itertools import repeat
 from typing import Callable, Iterable, Sequence, Tuple
-from scipy.interpolate import interp1d
 
 import lmdb
 import numpy as np
@@ -98,24 +97,12 @@ def flatten(iterator: Iterable):
         for sub_elm in elm:
             yield sub_elm
 
-def moving_average(data, window_size):
-    window = np.ones(int(window_size))/float(window_size)
-    return np.convolve(data, window, 'same')
-
-
 def process_audio_array(audio: Tuple[int, bytes],
                         env: lmdb.Environment) -> int:
     audio_id, audio_samples = audio
 
     audio_samples_np = np.frombuffer(audio_samples, dtype=np.int16).astype(np.float32) / (2**15 - 1)
     onset_strength = librosa.onset.onset_strength(y=audio_samples_np, sr=FLAGS.sampling_rate)
-
-    # Interpolate the onset strength to match the length of the waveform
-    onset_times = np.linspace(0, len(audio_samples_np), len(onset_strength))
-    desired_times = np.arange(len(audio_samples_np))
-    interp_func = interp1d(onset_times, onset_strength, kind='cubic', fill_value='extrapolate')
-    onset_strength_upsampled = interp_func(desired_times)
-    #onset_strength_filtered = moving_average(onset_strength_upsampled, 1000)
 
     buffers = {}
     buffers['waveform'] = AudioExample.AudioBuffer(
