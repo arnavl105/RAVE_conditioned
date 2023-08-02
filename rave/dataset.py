@@ -89,8 +89,9 @@ class AudioDataset(data.Dataset):
 
         if self._conditioning:
             # Stack the waveform and onset strength data
-            audio = np.vstack([audio, onset_strength])
-            audio = RandomCrop2D(self._n_signal)(audio)
+            # audio = np.vstack([audio, onset_strength])
+            # audio = RandomCrop2D(self._n_signal)(audio)
+            return audio, onset_strength
 
         return audio 
 

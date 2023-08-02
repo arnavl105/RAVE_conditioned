@@ -22,7 +22,7 @@ class Model(pl.LightningModule):
 
         self.synth = torch.jit.load(pretrained_vae)
         self.sr = 44100 
-        data_size = 1 
+        data_size = 1
 
         self.warmed_up = True
 
@@ -80,7 +80,7 @@ class Model(pl.LightningModule):
         self.synth.eval()
         return self.synth.decode(flipped_z)
 
-    def forward(self, x):
+    def forward(self, x, onset_strength):
         res = self.pre_net(x)
         skp = torch.tensor(0.).to(x)
         for layer in self.residuals:
@@ -129,9 +129,13 @@ class Model(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx):
-        x = self.encode(batch)
+        audio = batch[0].reshape(1, -1) # B x T
+        onset_strength = batch[1].reshape(1, -1) # B x T
+
+        x = self.encode(audio)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
-        pred = self.forward(x)
+        onset_strength = self.diagonal_shift(onset_strength)
+        pred = self.forward(x, onset_strength)
 
         x = torch.argmax(self.split_classes(x), -1)
         pred = self.split_classes(pred)
@@ -144,32 +148,43 @@ class Model(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x = self.encode(batch)
-        x = self.quantized_normal.encode(self.diagonal_shift(x))
-        pred = self.forward(x)
+        audio = batch[0].reshape(1, -1) # B x T
+        onset_strength = batch[1]
+        #remove extra frame from onset strength
+        onset_strength = onset_strength[:, 1:].reshape(1, -1) # B x T[1:]
 
+        x = self.encode(audio)
+        print("post encode shape: ", x.shape)
+        print("post quantized shape: ", self.quantized_normal.encode(x).shape) 
+        print("onset strength shape: ", onset_strength.shape)
+        x = self.quantized_normal.encode(self.diagonal_shift(x))
+        pred = self.forward(x, onset_strength)
 
         x = torch.argmax(self.split_classes(x), -1)
         pred = self.split_classes(pred)
 
+        print("pred shape: ", pred.reshape(-1, self.quantized_normal.resolution).shape)
+        print("x shape: ", x.reshape(-1).shape)
         loss = nn.functional.cross_entropy(
             pred.reshape(-1, self.quantized_normal.resolution),
             x.reshape(-1),
         )
 
         self.log("validation", loss)
-        return batch
+        return audio 
 
-    def validation_epoch_end(self, out):
-        x = torch.randn_like(self.encode(out[0]))
-        x = self.quantized_normal.encode(self.diagonal_shift(x))
-        z = self.generate(x)
-        z = self.diagonal_shift.inverse(self.quantized_normal.decode(z))
-        y = self.decode(z)
-        self.logger.experiment.add_audio(
-            "generation",
-            y.reshape(-1),
-            self.val_idx,
-            44100,
-        )
-        self.val_idx += 1
+    # def validation_epoch_end(self, out):
+    #     x = torch.randn_like(self.encode(out[0]))
+    #     x = self.quantized_normal.encode(self.diagonal_shift(x))
+    #     print("x shape: ", x.shape)
+    #     z = self.generate(x)
+    #     z = self.diagonal_shift.inverse(self.quantized_normal.decode(z))
+    #     print("z shape: ", z.shape)
+    #     y = self.decode(z)
+    #     self.logger.experiment.add_audio(
+    #         "generation",
+    #         y.reshape(-1),
+    #         self.val_idx,
+    #         44100,
+    #     )
+    #     self.val_idx += 1

@@ -50,8 +50,7 @@ class DiagonalShift(nn.Module):
         i = i // self.groups
         n_dim = n_dim // self.groups
         start = i
-        end = -n_dim + i + 1
-        end = end if end else None
+        end = n_dim + i - 1
         return x[..., start:end]
 
     def forward(self, x):

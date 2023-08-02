@@ -72,6 +72,7 @@ def main(argv):
     dataset = rave.dataset.get_dataset(FLAGS.db_path,
                                        model.sr,
                                        FLAGS.n_signal,
+                                       conditioning=True,
                                        )
     train, val = rave.dataset.split_dataset(dataset, 98)
     num_workers = FLAGS.workers

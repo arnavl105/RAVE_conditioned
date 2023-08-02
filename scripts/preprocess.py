@@ -102,7 +102,7 @@ def process_audio_array(audio: Tuple[int, bytes],
     audio_id, audio_samples = audio
 
     audio_samples_np = np.frombuffer(audio_samples, dtype=np.int16).astype(np.float32) / (2**15 - 1)
-    onset_strength = librosa.onset.onset_strength(y=audio_samples_np, sr=FLAGS.sampling_rate)
+    onset_strength = librosa.onset.onset_strength(y=audio_samples_np, sr=FLAGS.sampling_rate, hop_length=2048, n_fft=2048)
 
     buffers = {}
     buffers['waveform'] = AudioExample.AudioBuffer(
