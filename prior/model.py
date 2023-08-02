@@ -80,7 +80,7 @@ class Model(pl.LightningModule):
         self.synth.eval()
         return self.synth.decode(flipped_z)
 
-    def forward(self, x, onset_strength):
+    def forward(self, x):
         res = self.pre_net(x)
         skp = torch.tensor(0.).to(x)
         for layer in self.residuals:
@@ -130,12 +130,15 @@ class Model(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         audio = batch[0].reshape(1, -1) # B x T
-        onset_strength = batch[1].reshape(1, -1) # B x T
+        onset_strength = batch[1]
+        #remove extra frame from onset strength
+        onset_strength = onset_strength[:, 1:].reshape(1, -1) # B x T[1:]
 
         x = self.encode(audio)
+        x = torch.cat((x, onset_strength), dim=0)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
         onset_strength = self.diagonal_shift(onset_strength)
-        pred = self.forward(x, onset_strength)
+        pred = self.forward(x)
 
         x = torch.argmax(self.split_classes(x), -1)
         pred = self.split_classes(pred)
@@ -154,11 +157,10 @@ class Model(pl.LightningModule):
         onset_strength = onset_strength[:, 1:].reshape(1, -1) # B x T[1:]
 
         x = self.encode(audio)
-        print("post encode shape: ", x.shape)
-        print("post quantized shape: ", self.quantized_normal.encode(x).shape) 
-        print("onset strength shape: ", onset_strength.shape)
+        x = torch.cat((x, onset_strength), dim=0)
+        print("x shape post cat: ", x.shape)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
-        pred = self.forward(x, onset_strength)
+        pred = self.forward(x)
 
         x = torch.argmax(self.split_classes(x), -1)
         pred = self.split_classes(pred)
