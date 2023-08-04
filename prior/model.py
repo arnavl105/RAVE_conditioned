@@ -129,15 +129,14 @@ class Model(pl.LightningModule):
         return x
 
     def training_step(self, batch, batch_idx):
-        audio = batch[0].reshape(1, -1) # B x T
+        audio = batch[0] # B x T
         onset_strength = batch[1]
-        #remove extra frame from onset strength
-        onset_strength = onset_strength[:, 1:].reshape(1, -1) # B x T[1:]
+        #remove extra frame from onset strength and add channel dimension
+        onset_strength = onset_strength[:, None, 1:] # B x T[1:]
 
         x = self.encode(audio)
-        x = torch.cat((x, onset_strength), dim=0)
+        # x = torch.cat((x, onset_strength), dim=1)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
-        onset_strength = self.diagonal_shift(onset_strength)
         pred = self.forward(x)
 
         x = torch.argmax(self.split_classes(x), -1)
@@ -151,22 +150,19 @@ class Model(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        audio = batch[0].reshape(1, -1) # B x T
+        audio = batch[0] # B x T
         onset_strength = batch[1]
-        #remove extra frame from onset strength
-        onset_strength = onset_strength[:, 1:].reshape(1, -1) # B x T[1:]
+        #remove extra frame from onset strength and add channel dimension
+        onset_strength = onset_strength[:, None, 1:] # B x T[1:]
 
         x = self.encode(audio)
-        x = torch.cat((x, onset_strength), dim=0)
-        print("x shape post cat: ", x.shape)
+        # x = torch.cat((x, onset_strength), dim=1)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
         pred = self.forward(x)
 
         x = torch.argmax(self.split_classes(x), -1)
         pred = self.split_classes(pred)
 
-        print("pred shape: ", pred.reshape(-1, self.quantized_normal.resolution).shape)
-        print("x shape: ", x.reshape(-1).shape)
         loss = nn.functional.cross_entropy(
             pred.reshape(-1, self.quantized_normal.resolution),
             x.reshape(-1),
