@@ -8,30 +8,7 @@ import math
 import torch.nn as nn
 from prior import Prior
 from prior.core import QuantizedNormal  
-
-# def from_normal(x):
-#     return .5 * (1 + torch.erf(x / math.sqrt(2)))
-
-# def to_stack_one_hot(x, resolution):
-#     print("x shape - pre one hot: ", x.shape)
-#     x = nn.functional.one_hot(x, resolution).squeeze(2)
-#     print("x shape - one hot: ", x.shape)
-#     x = x.permute(0, 2, 1).float()
-#     return x.float()
-
-# def quantize(x, resolution):
-#     x = from_normal(x)
-#     x = torch.floor(x * resolution)
-#     x = torch.clamp(x, 0, resolution - 1)
-#     return to_stack_one_hot(x.long(), resolution)
-
-# def decode(x, resolution):
-#     x = x.permute(0, 2, 1)
-#     x = x.reshape(x.shape[0], x.shape[1], -1, resolution)
-#     x = torch.argmax(x, -1) / resolution
-#     x = to_normal(x)
-#     x = x.permute(0, 2, 1)
-#     return x
+from tqdm import tqdm
 
 def process_audio(input_path, output_path, model_checkpoint_path, pretrained_vae_path ,chunk_size):
     # Load the model from the checkpoint
@@ -68,7 +45,7 @@ def process_audio(input_path, output_path, model_checkpoint_path, pretrained_vae
     output = []
 
     # Pass each chunk through the model and reconstruct the signal
-    for i in range(chunks.shape[0]):
+    for i in tqdm(range(chunks.shape[0])):
         # Get input chunk
         chunk = chunks[i:i+1, :]
         #chunk = np.expand_dims(chunk, 0)
@@ -79,9 +56,7 @@ def process_audio(input_path, output_path, model_checkpoint_path, pretrained_vae
             x_encoded = model.encode(x)
             x_encoded = quantized_normal.encode(x_encoded)
             y = model.forward(x_encoded)
-            print("y shape pre decode: ", y.shape)
             y = quantized_normal.decode(y)
-            print("y shape post decode: ", y.shape)
             y = model.decode(y)
 
         # Store output
