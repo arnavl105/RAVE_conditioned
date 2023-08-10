@@ -54,7 +54,7 @@ def process_audio(input_path, output_path, model_checkpoint_path, pretrained_vae
         # Pass chunk through model and get output
         with torch.no_grad():
             x_encoded = model.encode(x)
-            x_encoded = quantized_normal.encode(x_encoded)
+            x_encoded = quantized_normal.encode(x_encoded.unsqueeze(0))
             y = model.forward(x_encoded)
             y = quantized_normal.decode(y)
             y = model.decode(y)
@@ -65,7 +65,6 @@ def process_audio(input_path, output_path, model_checkpoint_path, pretrained_vae
 
     # Reconstruct signal from output chunks
     output = np.concatenate(output, axis=-1)[0]
-    print("output shape: ", output.shape)
 
     # Save the output audio to the output folder using soundfile
     sf.write(output_path, output.T, sr)

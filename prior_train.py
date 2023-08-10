@@ -22,7 +22,7 @@ flags.DEFINE_string('db_path',
 flags.DEFINE_integer('max_steps',
                      6000000,
                      help='Maximum number of training steps')
-flags.DEFINE_integer('val_every', 100, help='Checkpoint model every n steps')
+flags.DEFINE_integer('val_every', 5000, help='Checkpoint model every n steps')
 flags.DEFINE_integer('n_signal',
                      2048,
                      help='Number of audio samples to use during training')

@@ -22,7 +22,7 @@ class Model(pl.LightningModule):
 
         self.synth = torch.jit.load(pretrained_vae)
         self.sr = 44100 
-        data_size = 1
+        data_size = 16
 
         self.warmed_up = True
 
@@ -76,9 +76,8 @@ class Model(pl.LightningModule):
 
     @torch.no_grad()
     def decode(self, z):
-        flipped_z = z.permute(1, 0, 2)
         self.synth.eval()
-        return self.synth.decode(flipped_z)
+        return self.synth.decode(z)
 
     def forward(self, x):
         res = self.pre_net(x)
@@ -171,18 +170,18 @@ class Model(pl.LightningModule):
         self.log("validation", loss)
         return audio 
 
-    # def validation_epoch_end(self, out):
-    #     x = torch.randn_like(self.encode(out[0]))
-    #     x = self.quantized_normal.encode(self.diagonal_shift(x))
-    #     print("x shape: ", x.shape)
-    #     z = self.generate(x)
-    #     z = self.diagonal_shift.inverse(self.quantized_normal.decode(z))
-    #     print("z shape: ", z.shape)
-    #     y = self.decode(z)
-    #     self.logger.experiment.add_audio(
-    #         "generation",
-    #         y.reshape(-1),
-    #         self.val_idx,
-    #         44100,
-    #     )
-    #     self.val_idx += 1
+    def validation_epoch_end(self, out):
+        x = torch.randn_like(self.encode(out[0]))
+        x = self.quantized_normal.encode(self.diagonal_shift(x))
+        z = self.generate(x)
+
+        z = self.quantized_normal.decode(z)
+
+        y = self.decode(z)
+        self.logger.experiment.add_audio(
+            "generation",
+            y.reshape(-1),
+            self.val_idx,
+            44100,
+        )
+        self.val_idx += 1
