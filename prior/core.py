@@ -56,23 +56,9 @@ class DiagonalShift(nn.Module):
         end = end if end else None
         return x[..., start:end]
 
-    # def zero_pad_and_concatenate(self, tensor_list, n_dim):
-    #     padded_tensors = []
-    #     # Zero pad tensors to match the maximum length
-    #     for i, tensor in enumerate(tensor_list):
-    #         if tensor.size(1) < n_dim:
-    #             zeros = torch.zeros((tensor.size(0), n_dim - tensor.size(1))).to(tensor.device)
-    #             padded_tensors.append(torch.cat([tensor, zeros], dim=1))
-    #         else:
-    #             padded_tensors.append(tensor)
-        
-    #     # Concatenate along index 0
-    #     result = torch.stack(padded_tensors, dim=0)
-    #     return result.squeeze(1)
-
     def forward(self, x):
         n_dim = x.shape[1]
-        x = torch.split(x, 1, dim=0)
+        x = torch.split(x, 1, 1)
         x = [
             self.shift(_x, i, n_dim) for _x, i in zip(
                 x,
@@ -80,7 +66,7 @@ class DiagonalShift(nn.Module):
             )
         ]
         x = torch.cat(list(x), 1)
-        return x.T.unsqueeze(0)
+        return x
 
 
     def inverse(self, x):

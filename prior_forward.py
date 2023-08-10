@@ -39,7 +39,7 @@ def process_audio(input_path, output_path, model_checkpoint_path, pretrained_vae
     audio, sr = librosa.load(input_path)
 
     # Split audio into chunks
-    chunks = librosa.util.frame(audio, frame_length=chunk_size, hop_length=chunk_size).T
+    chunks = librosa.util.frame(audio, frame_length=chunk_size, hop_length=2048).T
 
     # Initialize output array
     output = []
@@ -47,16 +47,21 @@ def process_audio(input_path, output_path, model_checkpoint_path, pretrained_vae
     # Pass each chunk through the model and reconstruct the signal
     for i in tqdm(range(chunks.shape[0])):
         # Get input chunk
-        chunk = chunks[i:i+1, :]
+        chunk = chunks[None, i:i+1, :]
         #chunk = np.expand_dims(chunk, 0)
         x = torch.from_numpy(chunk)
 
         # Pass chunk through model and get output
         with torch.no_grad():
+            print("x.shape:", x.shape)
             x_encoded = model.encode(x)
-            x_encoded = quantized_normal.encode(x_encoded.unsqueeze(0))
+            print("x_encoded.shape:", x_encoded.shape)
+            x_encoded = quantized_normal.encode(x_encoded)
             y = model.forward(x_encoded)
             y = quantized_normal.decode(y)
+            print("y.shape pre slice:", y.shape)
+            y = y[:, :, -1:None]
+            print("y.shape post slice:", y.shape)
             y = model.decode(y)
 
         # Store output
@@ -75,7 +80,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", type=str, default="output.wav", help="Path to save the output processed audio.")
     parser.add_argument("--model_checkpoint_path", type=str, help="Path to the model checkpoint.", required=True)
     parser.add_argument("--pretrained_vae_path", type=str,  help="Path to the pre-trained VAE checkpoint.", required=True)
-    parser.add_argument("--chunk_size", type=int, default=2048, help="Chunk size for processing the audio.")
+    parser.add_argument("--chunk_size", type=int, default=2048*32, help="Chunk size for processing the audio.")
 
     args = parser.parse_args()
 
