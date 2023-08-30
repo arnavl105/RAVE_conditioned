@@ -24,7 +24,7 @@ flags.DEFINE_integer('max_steps',
                      help='Maximum number of training steps')
 flags.DEFINE_integer('val_every', 5000, help='Checkpoint model every n steps')
 flags.DEFINE_integer('n_signal',
-                     2048,
+                     34816,
                      help='Number of audio samples to use during training')
 flags.DEFINE_integer('batch', 8, help='Batch size')
 flags.DEFINE_string('ckpt',
@@ -49,8 +49,8 @@ def main(argv):
     torch.backends.cudnn.benchmark = True
 
     RESOLUTION = 32 
-    RES_SIZE = 512
-    SKP_SIZE = 256
+    RES_SIZE = 544 
+    SKP_SIZE = 272 
     KERNEL_SIZE = 3
     CYCLE_SIZE = 4
     N_LAYERS = 10
@@ -104,6 +104,8 @@ def main(argv):
 
     os.makedirs(os.path.join("prior_runs", RUN_NAME), exist_ok=True)
 
+    accelerator = None
+    devices = None
     if FLAGS.gpu == [-1]:
         gpu = 0
     else:
@@ -111,8 +113,6 @@ def main(argv):
 
     print('selected gpu:', gpu)
 
-    accelerator = None
-    devices = None
     if FLAGS.gpu == [-1]:
         pass
     elif torch.cuda.is_available():

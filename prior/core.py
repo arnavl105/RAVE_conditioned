@@ -23,6 +23,14 @@ class QuantizedNormal(nn.Module):
         x = torch.clamp(x, 0, self.resolution - 1)
         return self.to_stack_one_hot(x.long())
 
+    def encode_onset(self, x):
+        # since onset envelope isnt't derived from a cdf 
+        # we instead naively divide by the max
+        x = x / torch.max(x)
+        x = torch.floor(x * self.resolution)
+        x = torch.clamp(x, 0, self.resolution - 1)
+        return self.to_stack_one_hot(x.long())
+
     def to_stack_one_hot(self, x):
         x = nn.functional.one_hot(x, self.resolution)
         x = x.permute(0, 2, 1, 3)

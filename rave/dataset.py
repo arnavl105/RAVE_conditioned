@@ -27,12 +27,22 @@ def get_derivator_integrator(sr: int):
 
     return lambda x: lfilter(*derivator, x), lambda x: lfilter(*integrator, x)
 
-def RandomCrop2D(n_signal):
+def RandomCrop2D(audio, n_signal, onset_strength):
     """
     Returns a function that randomly crops signal to fit n_signal samples.
-    Designed to work with 2D arrays where time is the second dimension.
     """
-    return lambda x: x[:, np.random.randint(0, x.shape[1] - n_signal):][:, :n_signal]
+    # Find a random start index that is divisible by 2048
+    max_start_index = audio.shape[0] - n_signal
+    random_start = np.random.randint(0, max_start_index // 2048) * 2048
+
+    # Crop the audio array
+    cropped_audio = audio[random_start:random_start + n_signal]
+
+    # Adjust the onset_strength envelope according to the calculated index
+    onset_start = random_start // 2048
+    cropped_onset_strength = onset_strength[onset_start: onset_start + n_signal // 2048]
+
+    return cropped_audio, cropped_onset_strength
 
 class AudioDataset(data.Dataset):
 
@@ -83,6 +93,7 @@ class AudioDataset(data.Dataset):
             assert onset_strength_buffer.precision == AudioExample.Precision.INT16
             onset_strength = np.frombuffer(onset_strength_buffer.data, dtype=np.int16)
             onset_strength = onset_strength.astype(np.float32) / (2**15 - 1)
+            onset_strength = onset_strength[1:] # Remove the first sample
 
         if self._transforms is not None:
             audio = self._transforms(audio)
@@ -90,7 +101,7 @@ class AudioDataset(data.Dataset):
         if self._conditioning:
             # Stack the waveform and onset strength data
             # audio = np.vstack([audio, onset_strength])
-            # audio = RandomCrop2D(self._n_signal)(audio)
+            #audio, onset_strength = RandomCrop2D(audio, self._n_signal, onset_strength)
             return audio, onset_strength
 
         return audio 

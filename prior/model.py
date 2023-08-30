@@ -22,7 +22,7 @@ class Model(pl.LightningModule):
 
         self.synth = torch.jit.load(pretrained_vae)
         self.sr = 44100 
-        data_size = 16
+        data_size = 17
 
         self.warmed_up = True
 
@@ -130,12 +130,16 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         audio = batch[0].unsqueeze(1) #add channel dimension
         onset_strength = batch[1]
-        #remove extra frame from onset strength and add channel dimension
-        onset_strength = onset_strength[:, None, 1:] # B x T[1:]
+        #add channel dimension
+        onset_strength = onset_strength[:, None, :] # B x T
 
         x = self.encode(audio)
-        # x = torch.cat((x, onset_strength), dim=1)
-        x = self.quantized_normal.encode(self.diagonal_shift(x))
+        x = torch.cat((x, onset_strength), dim=1)
+        x_diagonal = self.diagonal_shift(x)
+        onset_diagonal = x_diagonal[..., -1:]
+        x = self.quantized_normal.encode(x_diagonal[..., :-1])
+        onset_quantized = self.quantized_normal.encode_onset(onset_diagonal)
+        x = torch.cat((x, onset_quantized), dim=-1)
         pred = self.forward(x)
 
         x = torch.argmax(self.split_classes(x[...,1:]), -1)
@@ -151,24 +155,20 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         audio = batch[0].unsqueeze(1) #add channel dimension
         onset_strength = batch[1]
-        #remove extra frame from onset strength and add channel dimension
-        onset_strength = onset_strength[:, None, 1:] # B x T[1:]
-
-        print("audio shape: ", audio.shape)
+        #add channel dimension
+        onset_strength = onset_strength[:, None, :] # B x T
 
         x = self.encode(audio)
-        # x = torch.cat((x, onset_strength), dim=1)
-        x = self.quantized_normal.encode(self.diagonal_shift(x))
+        x = torch.cat((x, onset_strength), dim=1)
+        x_diagonal = self.diagonal_shift(x)
+        onset_diagonal = x_diagonal[..., -1:]
+        x = self.quantized_normal.encode(x_diagonal[..., :-1])
+        onset_quantized = self.quantized_normal.encode_onset(onset_diagonal)
+        x = torch.cat((x, onset_quantized), dim=-1)
         pred = self.forward(x)
-
-        print("pred shape: ", pred.shape)
-        print("x shape: ", x.shape)
 
         x = torch.argmax(self.split_classes(x[...,1:]), -1)
         pred = self.split_classes(pred[...,:-1])
-
-        print("pred shape - post split: ", pred.shape)
-        print("x shape - post split: ", x.shape)
 
         loss = nn.functional.cross_entropy(
             pred.reshape(-1, self.quantized_normal.resolution),
@@ -176,14 +176,17 @@ class Model(pl.LightningModule):
         )
 
         self.log("validation", loss)
-        return audio 
+        return audio, onset_strength
 
     def validation_epoch_end(self, out):
-        x = torch.randn_like(self.encode(out[0]))
+        x = torch.randn_like(self.encode(out[0][0]))
+        x_onset = torch.randn_like(out[0][1])
+        x = torch.cat((x, x_onset), dim=1)
         x = self.quantized_normal.encode(self.diagonal_shift(x))
         z = self.generate(x)
         z = self.diagonal_shift.inverse(self.quantized_normal.decode(z))
-
+        #slice off last channel (onset strength)
+        z = z[:, :-1, :]
         y = self.decode(z)
         self.logger.experiment.add_audio(
             "generation",
